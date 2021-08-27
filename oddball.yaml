@@ -1,0 +1,67 @@
+Resources:
+  MyLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt 
+        - MyLambdaFunction
+        - Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: elasticloadbalancing.amazonaws.com
+
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: false
+      Name: MyTargets
+      TargetType: lambda
+      Targets:
+      - Id: !GetAtt [ MyLambdaFunction, Arn ]
+
+  MyLambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt [ LambdaExecutionRole, Arn ]
+      Code:
+        ZipFile: !Sub |
+          import json
+          
+          def handler(event, context):
+            response = {
+              "statusCode": 200,
+              "statusDescription": "200 OK",
+              "isBase64Encoded": False,
+              "headers": {
+                "Content-Type": "text/html; charset=utf-8"
+              }
+            }
+
+            response['body'] = """<html>
+            <head>
+            <title>Hello World!</title>
+            <style>
+            html, body {
+              margin: 0; padding: 0;
+              font-family: arial; font-weight: 700; font-size: 3em;
+              text-align: center;
+            }
+            </style>
+            </head>
+            <body>
+            <p>Hello World from Lambda</p>
+            </body>
+            </html>"""
+            return response      
+      Runtime: "python3.6"
+      Timeout: "25"
+
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"

@@ -1,0 +1,561 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "VPC with ALB and 2 Httpd servers",
+
+  "Parameters" : {
+	          "EnvironmentName": {
+            "Description": "An environment name that is prefixed to resource names",
+            "Type": "String",
+			"Default": "SMG"
+        },
+		 "LatestAmiId": {
+            "Description": "Gets the latest AMI from Systems Manager Parameter store",
+            "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+            "Default": "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+        },
+	    "S3WebSite": {
+      "Description": "S3 Bucket Source for Website",
+      "Type": "String",
+	  "Default": "smgriffiths-website"
+    },
+        "VpcCIDR": {
+            "Description": "Please enter the IP range (CIDR notation) for this VPC",
+            "Type": "String",
+            "Default": "10.24.0.0/16"
+        },
+        "PublicSubnet1CIDR": {
+            "Description": "Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone",
+            "Type": "String",
+            "Default": "10.24.10.0/24"
+        },
+        "PublicSubnet2CIDR": {
+            "Description": "Please enter the IP range (CIDR notation) for the public subnet in the second Availability Zone",
+            "Type": "String",
+            "Default": "10.24.11.0/24"
+        },
+
+
+    "SSHLocation" : {
+      "Description" : "The IP address range that can be used to SSH to the EC2 instances",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "0.0.0.0/0",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+   }
+  },
+
+
+  "Resources" : {
+        "VPC": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": {
+                    "Ref": "VpcCIDR"
+                },
+                "EnableDnsSupport": true,
+                "EnableDnsHostnames": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Ref": "EnvironmentName"
+                        }
+                    }
+                ]
+            }
+        },
+        "InternetGateway": {
+            "Type": "AWS::EC2::InternetGateway",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Ref": "EnvironmentName"
+                        }
+                    }
+                ]
+            }
+        },
+        "InternetGatewayAttachment": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway"
+                },
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "PublicSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "CidrBlock": {
+                    "Ref": "PublicSubnet1CIDR"
+                },
+                "MapPublicIpOnLaunch": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "${EnvironmentName} Public Subnet (AZ1)"
+                        }
+                    }
+                ]
+            }
+        },
+        "PublicSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "CidrBlock": {
+                    "Ref": "PublicSubnet2CIDR"
+                },
+                "MapPublicIpOnLaunch": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "${EnvironmentName} Public Subnet (AZ2)"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "PublicRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "${EnvironmentName} Public Routes"
+                        }
+                    }
+                ]
+            }
+        },
+        "DefaultPublicRoute": {
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "InternetGatewayAttachment",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicSubnet1RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                },
+                "SubnetId": {
+                    "Ref": "PublicSubnet1"
+                }
+            }
+        },
+        "PublicSubnet2RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                },
+                "SubnetId": {
+                    "Ref": "PublicSubnet2"
+                }
+            }
+        },
+ 
+	  
+
+	
+	"WEB01" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "InstanceType" : "t2.micro",
+		"SecurityGroupIds" : [ { "Fn::GetAtt" : [ "SMGWebServerSG", "GroupId" ]  } ],
+		"SubnetId" : { "Ref" : "PublicSubnet1"} ,
+		"IamInstanceProfile" : { "Ref" : "FCS3BucketsInstanceProfile"} ,
+        "KeyName" : "smg",
+        "ImageId" :  { "Ref" : "LatestAmiId"} ,  
+				        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": ["", [
+              "#!/bin/bash -ex\n",
+              "yum update -y\n",
+              "yum install -y httpd php mysql-server php-mysqlnd\n",
+              "systemctl enable httpd\n",
+              "systemctl start httpd\n",
+              "usermod -a -G apache ec2-user\n",
+              "chown -R ec2-user:apache /var/www\n",
+              "chmod 2775 /var/www\n",
+              "find /var/www -type d -exec sudo chmod 2775 {} \\;\n",
+              "find /var/www -type f -exec sudo chmod 0664 {} \\;\n",
+              "echo \"<?php echo '<h2>Welcome to COS80001. Installed PHP version: ' . phpversion() . '</h2>'; ?>\" > /var/www/html/phpinfo.php\n",
+			  "echo \"*/1 * * * * root aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html\" >> /etc/crontab\n",
+			  "echo \"<html><h1> Welocme to WebServer01 </h1></html>\" > /var/www/html/index.html\n",
+			  "aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html"
+            ]]
+          }
+        },
+				"Tags" : [
+       {
+      "Key" : "Name",
+      "Value" : "Webserver01"
+        }
+       ]
+      }
+    },
+
+	"WEB02" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "InstanceType" : "t2.micro",
+		"SecurityGroupIds" : [ { "Fn::GetAtt" : [ "SMGWebServerSG", "GroupId" ]  } ],
+		"SubnetId" : { "Ref" : "PublicSubnet2"} ,
+		"IamInstanceProfile" : { "Ref" : "FCS3BucketsInstanceProfile"} ,
+        "KeyName" : "smg",
+        "ImageId" : "ami-0c2b8ca1dad447f8a",
+				        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": ["", [
+              "#!/bin/bash -ex\n",
+              "yum update -y\n",
+              "yum install -y httpd php mysql-server php-mysqlnd\n",
+              "systemctl enable httpd\n",
+              "systemctl start httpd\n",
+              "usermod -a -G apache ec2-user\n",
+              "chown -R ec2-user:apache /var/www\n",
+              "chmod 2775 /var/www\n",
+              "find /var/www -type d -exec sudo chmod 2775 {} \\;\n",
+              "find /var/www -type f -exec sudo chmod 0664 {} \\;\n",
+              "echo \"<?php echo '<h2>Welcome to COS80001. Installed PHP version: ' . phpversion() . '</h2>'; ?>\" > /var/www/html/phpinfo.php\n",
+			  "echo \"*/1 * * * * root aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html\" >> /etc/crontab\n",
+			  "echo \"<html><h1> Welocme to WebServer02 </h1></html>\" > /var/www/html/index.html\n",
+			  "aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html"
+            ]]
+          }
+        },
+				"Tags" : [
+       {
+      "Key" : "Name",
+      "Value" : "Webserver02"
+        }
+       ]
+      }
+    },
+
+	"WEB03" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "InstanceType" : "t2.micro",
+		"SecurityGroupIds" : [ { "Fn::GetAtt" : [ "SMGWebServerSG", "GroupId" ]  } ],
+		"SubnetId" : { "Ref" : "PublicSubnet2"} ,
+		"IamInstanceProfile" : { "Ref" : "FCS3BucketsInstanceProfile"} ,
+        "KeyName" : "smg",
+        "ImageId" : "ami-0c2b8ca1dad447f8a",
+				        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": ["", [
+              "#!/bin/bash -ex\n",
+              "yum update -y\n",
+              "yum install -y httpd php mysql-server php-mysqlnd\n",
+              "systemctl enable httpd\n",
+              "systemctl start httpd\n",
+              "usermod -a -G apache ec2-user\n",
+              "chown -R ec2-user:apache /var/www\n",
+              "chmod 2775 /var/www\n",
+              "find /var/www -type d -exec sudo chmod 2775 {} \\;\n",
+              "find /var/www -type f -exec sudo chmod 0664 {} \\;\n",
+              "echo \"<?php echo '<h2>Welcome to COS80001. Installed PHP version: ' . phpversion() . '</h2>'; ?>\" > /var/www/html/phpinfo.php\n",
+			  "echo \"*/1 * * * * root aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html\" >> /etc/crontab\n",
+			  "echo \"<html><h1> Welocme to WebServer03 </h1></html>\" > /var/www/html/index.html\n",
+			  "aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html"
+            ]]
+          }
+        },
+				"Tags" : [
+       {
+      "Key" : "Name",
+      "Value" : "Webserver03"
+        }
+       ]
+      }
+    },
+
+	"WEB04" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "InstanceType" : "t2.micro",
+		"SecurityGroupIds" : [ { "Fn::GetAtt" : [ "SMGWebServerSG", "GroupId" ]  } ],
+		"SubnetId" : { "Ref" : "PublicSubnet2"} ,
+		"IamInstanceProfile" : { "Ref" : "FCS3BucketsInstanceProfile"} ,
+        "KeyName" : "smg",
+        "ImageId" : "ami-0c2b8ca1dad447f8a",
+				        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": ["", [
+              "#!/bin/bash -ex\n",
+              "yum update -y\n",
+              "yum install -y httpd php mysql-server php-mysqlnd\n",
+              "systemctl enable httpd\n",
+              "systemctl start httpd\n",
+              "usermod -a -G apache ec2-user\n",
+              "chown -R ec2-user:apache /var/www\n",
+              "chmod 2775 /var/www\n",
+              "find /var/www -type d -exec sudo chmod 2775 {} \\;\n",
+              "find /var/www -type f -exec sudo chmod 0664 {} \\;\n",
+              "echo \"<?php echo '<h2>Welcome to COS80001. Installed PHP version: ' . phpversion() . '</h2>'; ?>\" > /var/www/html/phpinfo.php\n",
+			  "echo \"*/1 * * * * root aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html\" >> /etc/crontab\n",
+			  "echo \"<html><h1> Welocme to WebServer04 </h1></html>\" > /var/www/html/index.html\n",
+			  "aws s3 sync s3://",
+			  { "Ref" : "S3WebSite"},
+			  " /var/www/html"
+            ]]
+          }
+        },
+				"Tags" : [
+       {
+      "Key" : "Name",
+      "Value" : "Webserver04"
+        }
+       ]
+      }
+    },
+
+	"MyEIP4WEB01" : {
+ "Type" : "AWS::EC2::EIP",
+ "Properties" : {
+     "InstanceId" : { "Ref" : "WEB01"}
+ }
+},
+
+	"MyEIP4WEB02" : {
+ "Type" : "AWS::EC2::EIP",
+ "Properties" : {
+     "InstanceId" : { "Ref" : "WEB02"}
+ }
+},
+
+
+
+    "ALBTargetGroup" : {
+      "Type" : "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties" : {
+        "HealthCheckPath" : "/index.html",  
+        "HealthCheckIntervalSeconds" : 10,
+        "HealthCheckTimeoutSeconds" : 5,
+        "HealthyThresholdCount" : 2,
+        "Port" : 80,
+        "Protocol" : "HTTP",
+        "UnhealthyThresholdCount" : 5,
+        "VpcId": { "Ref": "VPC" },
+		"TargetType" : "instance" ,	
+        "Targets": [
+                    {
+                        "Id": 
+                            { "Ref" : "WEB01" }
+                    
+					},
+					                    {
+                        "Id": 
+                            { "Ref" : "WEB03" }
+                    
+					},
+					                    {
+                        "Id": 
+                            { "Ref" : "WEB04" }
+                    
+					},
+					                    {
+                        "Id": 
+                            { "Ref" : "WEB02" }
+                    
+					}
+                ],			
+        "TargetGroupAttributes" :
+          [ { "Key" : "stickiness.enabled", "Value" : "false" },
+            { "Key" : "stickiness.type", "Value" : "lb_cookie" },
+            { "Key" : "stickiness.lb_cookie.duration_seconds", "Value" : "30" }
+        ]
+      }
+    },
+
+    "ApplicationLoadBalancer" : {
+      "Type" : "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties" : {
+		"SecurityGroups" : [ { "Ref" : "SMGWebServerSG" } ],
+		"Subnets": [
+                            { "Ref" : "PublicSubnet1"},
+                            { "Ref" : "PublicSubnet2"}
+                ]
+      }
+    },
+
+    "ALBListener" : {
+      "Type" : "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties" : {
+        "DefaultActions" : [{
+          "Type" : "forward",
+          "TargetGroupArn" : { "Ref" : "ALBTargetGroup" }
+        }],
+        "LoadBalancerArn" : { "Ref" : "ApplicationLoadBalancer" },
+        "Port" : "80",
+        "Protocol" : "HTTP"
+      }
+    },
+
+		    "SMGWebServerSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Web DMZ",
+		 "VpcId": { "Ref": "VPC" },
+        "SecurityGroupIngress": [{
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": {
+              "Ref": "SSHLocation"
+            }
+          },
+		            {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": {
+              "Ref": "SSHLocation"
+            }
+          }
+        ],
+
+        "Tags": [{
+            "Key": "Name",
+            "Value": "SMG-WebDMZ"
+          }
+        ]
+      }
+    },
+	
+    "FCS3BucketsInstanceProfile" : {
+      "Type" : "AWS::IAM::InstanceProfile",
+      "Properties" : {
+        "Path" : "/",
+        "Roles" : [
+          {
+            "Ref" : "FCS3BucketsRole"
+          }
+        ]
+      }
+    },
+    "FCS3BucketsPolicy" : {
+      "Type" : "AWS::IAM::Policy",
+      "Properties" : {
+        "PolicyName" : "FCS3BucketsPolicy",
+        "PolicyDocument" : {
+          "Statement" : [
+            {
+              "Effect" : "Allow",
+              "Action" : [
+                "s3:*"
+              ],
+              "Resource" : "*"
+            }
+          ]
+        },
+        "Roles" : [
+          {
+            "Ref" : "FCS3BucketsRole"
+          }
+        ]
+      }
+    },
+    "FCS3BucketsRole" : {
+      "Type" : "AWS::IAM::Role",
+      "Properties" : {
+        "AssumeRolePolicyDocument": {
+          "Version" : "2012-10-17",
+          "Statement" : [
+            {
+              "Effect" : "Allow",
+              "Principal" : {
+                "Service" : ["ec2.amazonaws.com"]
+              },
+              "Action" : [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path" : "/"
+      }
+    }
+	
+	
+ 
+  },
+
+  "Outputs" : {
+	    "WEB01WebsiteURL" : {
+      "Value" : { "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : [ "WEB01", "PublicDnsName" ]}, "/" ]]},
+      "Description" : "WEB01 Website Address"
+    },
+	    "WEB02WebsiteURL" : {
+      "Value" : { "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : [ "WEB02", "PublicDnsName" ]}, "/" ]]},
+      "Description" : "WEB02 Website Address"
+    },
+	    "ARLWebsiteURL" : {
+      "Value" : { "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : [ "ApplicationLoadBalancer", "DNSName" ]}, "/" ]]},
+      "Description" : "ALB Website Address"
+    }
+
+  }
+}
+
