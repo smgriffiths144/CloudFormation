@@ -1,3 +1,3 @@
 # CloudFormation
 CloudFormation Templates
-Random testing templates
+Random testing templates mostly in JSON
